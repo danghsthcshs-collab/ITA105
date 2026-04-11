@@ -1,0 +1,53 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import os
+
+# Kiểm tra thư viện statsmodels
+try:
+    from statsmodels.tsa.seasonal import seasonal_decompose
+    HAS_STATS = True
+except ImportError:
+    HAS_STATS = False
+
+plt.rcParams['figure.figsize'] = [10, 5]
+
+def smart_read(file_name):
+    if not os.path.exists(file_name):
+        return None
+    df = pd.read_csv(file_name)
+    # Tự động tìm cột chứa ngày tháng
+    cols = df.columns
+    # Ưu tiên cột đầu tiên nếu nó chứa dữ liệu dạng ngày
+    df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0], errors='ignore')
+    df.set_index(cols[0], inplace=True)
+    return df
+
+# Chạy lần lượt các bài
+files = {
+    "Bài 1 (Supermarket)": "ITA105_Lab_5_Supermarket.csv",
+    "Bài 2 (Web Traffic)": "ITA105_Lab_5_Web_traffic.csv",
+    "Bài 3 (Stock)": "ITA105_Lab_5_Stock.csv",
+    "Bài 4 (Production)": "ITA105_Lab_5_Production.csv"
+}
+
+for title, f in files.items():
+    df = smart_read(f)
+    if df is not None:
+        print(f"--- Đang vẽ {title} ---")
+        if "Web" in title:
+            # Bài 2 cần resampling theo giờ
+            df = df.resample('H').mean().interpolate()
+            sns.lineplot(x=df.index.hour, y=df.iloc[:, 0])
+            plt.title(title)
+        elif "Production" in title and HAS_STATS:
+            # Bài 4 cần phân rã
+            result = seasonal_decompose(df.iloc[:, 0].fillna(method='ffill'), model='additive', period=12)
+            result.plot()
+        else:
+            # Bài 1 và 3 vẽ đường giá và trung bình động
+            df.iloc[:, 0].plot(label='Dữ liệu gốc')
+            df.iloc[:, 0].rolling(7).mean().plot(label='Trung bình 7 ngày')
+            plt.legend()
+            plt.title(title)
+        plt.show()
