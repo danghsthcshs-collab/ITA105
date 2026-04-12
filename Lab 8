@@ -1,0 +1,101 @@
+import pandas as pd
+import numpy as np
+import joblib
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, FunctionTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestRegressor
+
+# --- 1. HÀM TÙY CHỈNH CHO TIME SERIES ---
+def handle_time_series(df):
+    df = pd.DataFrame(df)
+    # Chuyển sang datetime và trích xuất tháng, quý
+    dt_col = pd.to_datetime(df.iloc[:, 0], errors='coerce')
+    # Trả về mảng 2 cột: Tháng và Quý
+    return np.c_[dt_col.dt.month.fillna(0), dt_col.dt.quarter.fillna(0)]
+
+def get_time_feature_names(transformer, input_features):
+    return ["month", "quarter"]
+
+# --- 2. LOAD DỮ LIỆU ---
+try:
+    df = pd.read_csv('ITA105_Lab_8.csv')
+    print("✅ Đã load file dữ liệu thành công!")
+    
+    # Tự động phân loại cột dựa trên kiểu dữ liệu
+    num_cols = df.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    # Giả sử cột cuối cùng của các cột số là giá nhà (target), ta bỏ nó ra khỏi đặc trưng
+    if len(num_cols) > 0:
+        target_col = num_cols[-1] 
+        num_cols.remove(target_col)
+    
+    # Cột chữ (Categorical) - lấy cột đầu tiên có kiểu object
+    all_obj_cols = df.select_dtypes(include=['object']).columns.tolist()
+    cat_cols = [all_obj_cols[0]] if len(all_obj_cols) > 0 else []
+    
+    # Cột văn bản (Text) - lấy cột cuối cùng có kiểu object
+    text_cols = all_obj_cols[-1] if len(all_obj_cols) > 1 else None
+    
+    # Cột thời gian - Giả sử là cột đầu tiên trong file
+    time_cols = [df.columns[0]]
+
+    # --- 3. XÂY DỰNG CÁC PIPELINE CON ---
+    num_transformer = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
+
+    cat_transformer = Pipeline([
+        ('imputer', SimpleImputer(strategy='constant', fill_value='Unknown')),
+        ('onehot', OneHotEncoder(handle_unknown='ignore'))
+    ])
+
+    # Pipeline xử lý thời gian (Đã sửa lỗi get_feature_names_out)
+    time_transformer = Pipeline([
+        ('extract', FunctionTransformer(handle_time_series, feature_names_out=get_time_feature_names)),
+        ('imputer', SimpleImputer(strategy='most_frequent'))
+    ])
+
+    # Tạo danh sách các bước cho ColumnTransformer
+    transformers = [
+        ('num', num_transformer, num_cols),
+        ('cat', cat_transformer, cat_cols),
+        ('time', time_transformer, time_cols)
+    ]
+    
+    # Nếu có cột text thì mới thêm vào
+    if text_cols:
+        transformers.append(('text', Pipeline([('tfidf', TfidfVectorizer(max_features=10))]), text_cols))
+
+    preprocessor = ColumnTransformer(transformers=transformers)
+
+    # --- 4. THỰC THI (SMOKE TEST) ---
+print("\n--- 🚀 Đang chạy Smoke Test trên 10 dòng đầu ---")
+    X_demo = df.head(10)
+    y_demo = df[target_col].head(10) if 'target_col' in locals() else np.random.rand(10)
+    
+    # Fit dữ liệu
+    preprocessor.fit(X_demo)
+    output = preprocessor.transform(X_demo)
+    
+    print(f"📊 Hình dạng dữ liệu sau biến đổi: {output.shape}")
+    print("📝 Danh sách cột sau encoding (Schema):")
+    print(preprocessor.get_feature_names_out())
+    
+    # --- 5. TÍCH HỢP MODEL & LƯU ---
+    model_pipeline = Pipeline([
+        ('preprocessor', preprocessor),
+        ('model', RandomForestRegressor(n_estimators=10, random_state=42))
+    ])
+    
+    model_pipeline.fit(X_demo, y_demo)
+    joblib.dump(model_pipeline, 'model_lab8.pkl')
+    print("\n💾 Đã lưu model thành công vào file 'model_lab8.pkl'")
+    print("✨ CHÚC MỪNG TUẤN ĐÃ HOÀN THÀNH LAB 8! ✨")
+
+except Exception as e:
+    print(f"❌ Có lỗi xảy ra: {e}")
+    import traceback
+    traceback.print_exc() # In chi tiết lỗi để dễ sửa
