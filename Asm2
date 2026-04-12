@@ -1,0 +1,120 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder
+from sklearn.model_selection import train_test_split
+
+# ==========================================
+# 1. KHÁM PHÁ & XỬ LÝ DỮ LIỆU (GIAI ĐOẠN 1)
+# ==========================================
+
+def initial_eda(df):
+    """Phân tích thống kê và kiểm tra dữ liệu bẩn"""
+    print("--- Thống kê mô tả ---")
+    print(df.describe())
+    print("\n--- Giá trị thiếu ---")
+    print(df.isnull().sum())
+    print("\n--- Dữ liệu trùng lặp ---")
+    print(f"Số dòng trùng: {df.duplicated().sum()}")
+
+def remove_outliers_iqr(df, column):
+    """Xử lý Outlier bằng phương pháp IQR"""
+    Q1 = df[column].quantile(0.25)
+    Q3 = df[column].quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    
+    # Capping: Giới hạn giá trị thay vì xóa bỏ hoàn toàn
+    df[column] = np.where(df[column] > upper_bound, upper_bound,
+                 np.where(df[column] < lower_bound, lower_bound, df[column]))
+    return df
+
+def clean_data_pipeline(df):
+    """Xử lý dữ liệu lỗi logic và làm sạch cơ bản"""
+    # 1. Xóa trùng lặp
+    df = df.drop_duplicates()
+    
+    # 2. Xử lý logic (Ví dụ: diện tích và giá không được <= 0)
+    if 'area' in df.columns:
+        df = df[df['area'] > 0]
+    if 'price' in df.columns:
+        df = df[df['price'] > 0]
+        
+    # 3. Điền giá trị thiếu (Imputation)
+    # Cột số điền bằng median, cột chữ điền bằng mode
+    num_cols = df.select_dtypes(include=[np.number]).columns
+    cat_cols = df.select_dtypes(include=['object']).columns
+    
+    imputer_num = SimpleImputer(strategy='median')
+    df[num_cols] = imputer_num.fit_transform(df[num_cols])
+    
+    return df
+
+# ==========================================
+# 2. BIẾN ĐỔI NÂNG CAO (GIAI ĐOẠN 2)
+# ==========================================
+
+def feature_engineering(df):
+    """Tạo thêm feature mới và xử lý lệch (Skewness)"""
+    # Xử lý Skewness bằng Log-Transform (cho cột giá/diện tích)
+    if 'price' in df.columns:
+        df['price_log'] = np.log1p(df['price'])
+        
+    # Tạo feature từ ngày tháng (Ví dụ: tuổi đời ngôi nhà)
+    if 'year_built' in df.columns:
+        current_year = 2026
+        df['house_age'] = current_year - df['year_built']
+    
+    # Tạo metric mới theo yêu cầu: price_per_m2
+    if 'price' in df.columns and 'area' in df.columns:
+        df['price_per_m2'] = df['price'] / df['area']
+        
+    return df
+
+# ==========================================
+# 3. LUỒNG CHẠY CHÍNH (MAIN)
+# ==========================================
+
+def main():
+    # Bước 1: Load dữ liệu (thay tên file của bạn vào đây)
+# df = pd.read_csv('data_assignment.csv')
+    
+    # Tạo dữ liệu giả lập để code không lỗi khi bạn chạy thử
+    data = {
+        'price': [2000, 3000, 1500, 1000000, 2500, None], # 1000000 là outlier
+        'area': [50, 60, 45, 200, 55, 50],
+        'year_built': [2010, 2015, 2000, 2020, 2018, 2012],
+        'district': ['Q1', 'Q3', 'Q1', 'Q7', 'Q3', 'Q1']
+    }
+    df = pd.DataFrame(data)
+
+    print("--- BẮT ĐẦU XỬ LÝ ---")
+    
+    # Thực hiện Giai đoạn 1
+    initial_eda(df)
+    df = clean_data_pipeline(df)
+    df = remove_outliers_iqr(df, 'price')
+    
+    # Thực hiện Giai đoạn 2
+    df = feature_engineering(df)
+    
+    # Scaling dữ liệu số
+    scaler = StandardScaler()
+    numeric_cols = ['area', 'house_age']
+    df[numeric_cols] = scaler.fit_transform(df[numeric_cols])
+    
+    # One-hot Encoding cho biến phân loại (Quận)
+    df = pd.get_dummies(df, columns=['district'])
+
+    print("\n--- DỮ LIỆU SAU KHI LÀM SẠCH VÀ BIẾN ĐỔI ---")
+    print(df.head())
+    
+    # Lưu file kết quả
+    # df.to_csv('cleaned_data.csv', index=False)
+    print("\nDone! Sẵn sàng cho bước huấn luyện mô hình.")
+
+if __name__ == "__main__":
+    main()
